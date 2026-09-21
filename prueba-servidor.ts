@@ -733,13 +733,62 @@ async function principal(): Promise<void> {
       ["white-space: pre-wrap", "las tarjetas saltan de linea"],
       ['createElement("details")', "resultados largos desplegables"],
       ["accion-campos", "el bloque pinta campo a campo"],
+      [
+        "cabecera-derecha",
+        "el contador y el enlace de sesion nueva conviven en el encabezado",
+      ],
+      [
+        "reinicio-confirmar",
+        "empezar de cero pide confirmacion antes de descartar la conversacion",
+      ],
+      [
+        "agruparHermanos",
+        "las tarjetas informativas agrupan los campos hermanos en una linea",
+      ],
+      [
+        "argumentosDeTarjeta",
+        "los argumentos largos de una tarjeta se pliegan por defecto",
+      ],
+      [
+        "--estado-espera",
+        "el color se nombra por ESTADO, no por color: se puede cambiar el tema en un sitio",
+      ],
+      [
+        "--estado-ejecutado",
+        "estado ejecutado con su propia variable",
+      ],
+      [
+        "--estado-fallo",
+        "estado denegado o fallo con su propia variable",
+      ],
+      [
+        "--lienzo: #f",
+        "tema claro: el lienzo es claro",
+      ],
     ];
     const faltan = exigidos
       .filter(([aguja]) => !html.includes(aguja))
       .map(([, porque]) => porque);
-    const prohibidos = ["JSON.stringify(valor, null, 2)"].filter((aguja) =>
-      html.includes(aguja),
-    );
+    const prohibidos = [
+      "JSON.stringify(valor, null, 2)",
+      // El color esta reservado al ESTADO: nada de acento de marca.
+      "var(--acento)",
+      // Denso y funcional: sin sombras, degradados ni animaciones.
+      "box-shadow",
+      "linear-gradient",
+      "@keyframes",
+    ].filter((aguja) => html.includes(aguja));
+    // El agrupado es SOLO para las tarjetas informativas. El bloque de
+    // aprobacion pinta cada valor en su renglon con la ruta entera: es lo
+    // que la persona aprueba, y distinguir correcciones.fecha_fin de un
+    // campo del documento es justo lo que S-22 protege. Si alguien cablea
+    // el agrupado al bloque, esta cuenta sube y la verificacion falla.
+    const usosDelAgrupado = html.split("argumentosDeTarjeta(").length - 1;
+    if (usosDelAgrupado !== 2) {
+      prohibidos.push(
+        `argumentosDeTarjeta aparece ${usosDelAgrupado} veces (definicion + 1 uso en la tarjeta de herramienta); si se uso en el bloque de aprobacion, se rompe S-22`,
+      );
+    }
     verificar(
       "[estatica, no prueba el render] index.html conserva las marcas de maquetado",
       faltan.length === 0 && prohibidos.length === 0,

@@ -5,25 +5,67 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Agente conversacional</title>
     <style>
+      /*
+        TEMA CLARO, y por que.
+
+        Esto no es un chat de consumo: es una herramienta de trabajo
+        administrativo. Se va a usar proyectada o compartida por pantalla,
+        con tarjetas densas de datos y texto monoespaciado. Sobre claro se
+        lee mejor en esas condiciones —un proyector lava los oscuros y el
+        monoespaciado fino desaparece—, y es lo que la persona que hace
+        este trabajo espera de un sistema de gestion.
+
+        REGLA DEL COLOR: el color esta reservado para el ESTADO y para
+        nada mas. No hay color de marca ni de acento. Lo que no es un
+        estado es neutro.
+
+          espera de aprobacion  ->  ambar
+          ejecutado             ->  verde
+          denegado o fallo      ->  rojo
+          todo lo demas         ->  neutro
+
+        Los nombres son del ESTADO, no del color, para poder cambiar el
+        tema sin cazar valores por el archivo. Si manana el ambar pasa a
+        ser morado, se cambia aqui y en ningun otro sitio.
+
+        CONTRASTE: comprobado, no estimado. Todos los pares de texto
+        superan 4.5:1 (AA para texto pequeno) y los bordes superan 3:1
+        (componentes de interfaz). Los mas ajustados, que son los que
+        importan porque son el texto pequeno y el monoespaciado:
+          texto-tenue sobre superficie ....... 8.75
+          estado-neutro sobre lienzo ......... 5.41
+          estado-ejecutado sobre su fondo .... 5.70
+          borde sobre superficie ............. 3.09
+      */
       :root {
-        --fondo: #10131a;
-        --panel: #171b24;
-        --panel-alto: #1e2430;
-        --borde: #2b3342;
-        --texto: #e6e9ef;
-        --tenue: #99a2b3;
-        --acento: #6aa9ff;
-        --ok: #4fbf7b;
-        --fallo: #ff7b72;
-        --aviso: #ffc857;
-        --confirmar: #f0b429;
+        /* Superficies y texto. Sin color. */
+        --lienzo: #f2f4f7;
+        --superficie: #ffffff;
+        --superficie-alta: #e7eaf0;
+        --borde: #8b93a3;
+        --texto: #0f1420;
+        --texto-tenue: #434b5c;
+        --relleno-neutro: #1f2937;
+
+        /* ESTADO. El unico sitio donde hay color. */
+        --estado-neutro: #5c6473;
+
+        --estado-ejecutado: #0f6b38;
+        --estado-ejecutado-fondo: #e3f2e9;
+
+        --estado-fallo: #a8201a;
+        --estado-fallo-fondo: #fbeae9;
+
+        --estado-espera: #7a4f00;
+        --estado-espera-fondo: #fcefd2;
+        --estado-espera-borde: #a06800;
       }
       * {
         box-sizing: border-box;
       }
       body {
         margin: 0;
-        background: var(--fondo);
+        background: var(--lienzo);
         color: var(--texto);
         font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
         display: flex;
@@ -60,7 +102,12 @@
           max-width: 100%;
         }
         #confirmacion {
-          padding: 12px;
+          padding: 0 12px 12px;
+        }
+        /* El margen negativo de la barra tiene que seguir al relleno. */
+        #confirmacion h2 {
+          margin: 0 -12px 0;
+          padding: 8px 12px;
         }
         .botones {
           flex-wrap: wrap;
@@ -82,9 +129,53 @@
         margin: 0;
         letter-spacing: 0.02em;
       }
+      /* El contador y el enlace de sesion nueva CONVIVEN: antes el
+         contador reemplazaba al enlace en cuanto empezaba la conversacion
+         y no habia forma de empezar de cero. Van en la misma linea del
+         encabezado, asi que no le quitan sitio al historial. */
+      #cabecera-derecha {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
       #estado {
         font-size: 13px;
-        color: var(--tenue);
+        color: var(--texto-tenue);
+        white-space: nowrap;
+      }
+      .enlace {
+        font: inherit;
+        font-size: 13px;
+        background: none;
+        border: none;
+        padding: 0;
+        color: var(--texto);
+        cursor: pointer;
+        text-decoration: underline;
+        white-space: nowrap;
+      }
+      .enlace:hover:not(:disabled) {
+        color: var(--estado-neutro);
+      }
+      .enlace:disabled {
+        color: var(--texto-tenue);
+        cursor: default;
+        text-decoration: none;
+      }
+      .enlace.peligro {
+        color: var(--estado-fallo);
+      }
+      #descartar-aviso {
+        font-size: 13px;
+        color: var(--estado-espera);
+        white-space: nowrap;
+      }
+      #reinicio-confirmar[hidden],
+      #reinicio[hidden],
+      #descartar-aviso[hidden] {
+        display: none;
       }
       #historial {
         flex: 1;
@@ -103,33 +194,32 @@
       }
       .usuario {
         align-self: flex-end;
-        background: var(--acento);
-        color: #0b1220;
+        background: var(--relleno-neutro);
+        color: var(--superficie);
         font-weight: 500;
       }
       .agente {
         align-self: flex-start;
-        background: var(--panel-alto);
+        background: var(--superficie-alta);
         border: 1px solid var(--borde);
       }
       .tarjeta {
         align-self: stretch;
-        background: var(--panel);
+        background: var(--superficie);
         border: 1px solid var(--borde);
-        border-left: 3px solid var(--tenue);
+        border-left: 3px solid var(--estado-neutro);
         border-radius: 8px;
         padding: 8px 12px;
         font-size: 13px;
       }
       .tarjeta.ok {
-        border-left-color: var(--ok);
+        border-left-color: var(--estado-ejecutado);
       }
       .tarjeta.fallo {
-        border-left-color: var(--fallo);
+        border-left-color: var(--estado-fallo);
       }
       .tarjeta.no-corrio {
-        border-left-color: var(--aviso);
-        opacity: 0.85;
+        border-left-color: var(--estado-espera);
       }
       .tarjeta .cabecera {
         display: flex;
@@ -145,12 +235,13 @@
         font-size: 11px;
         text-transform: uppercase;
         letter-spacing: 0.06em;
-        color: var(--tenue);
+        color: var(--texto-tenue);
       }
       .tarjeta pre {
         margin: 6px 0 0;
         padding: 6px 8px;
-        background: #0d1017;
+        background: var(--superficie-alta);
+        border: 1px solid var(--borde);
         border-radius: 6px;
         /* Salta de linea en vez de desplazarse: el evaluador tiene que
            poder LEER lo que devolvio cada llamada. */
@@ -159,13 +250,13 @@
         word-break: break-word;
         font-family: Consolas, "Courier New", monospace;
         font-size: 12px;
-        color: var(--tenue);
+        color: var(--texto);
       }
       /* Resultados largos: plegados por defecto, desplegables de un clic. */
       .tarjeta details > summary {
         cursor: pointer;
         font-size: 12px;
-        color: var(--tenue);
+        color: var(--texto-tenue);
         margin-top: 6px;
         list-style: revert;
       }
@@ -184,37 +275,47 @@
         font-size: 14px;
       }
       .error {
-        background: rgba(255, 123, 114, 0.12);
-        border: 1px solid var(--fallo);
+        background: var(--estado-fallo-fondo);
+        border: 1px solid var(--estado-fallo);
       }
       .aviso {
-        background: rgba(255, 200, 87, 0.12);
-        border: 1px solid var(--aviso);
+        background: var(--estado-espera-fondo);
+        border: 1px solid var(--estado-espera);
       }
+      /* EL ELEMENTO MAS DESTACADO DE LA PANTALLA, y en claro hay que
+         trabajarlo: el relleno ambar queda a 1.03 de contraste contra el
+         lienzo, o sea que por si solo no separa nada. El peso lo dan el
+         borde grueso (4.26 contra el lienzo) y la barra de titulo llena.
+         Sin sombras: es estructura, no adorno. */
       #confirmacion {
         /* Pegado al fondo del area visible: aunque el historial sea largo,
            el control humano no puede quedar fuera de pantalla. */
         position: sticky;
         bottom: 0;
         z-index: 2;
-        border: 2px solid var(--confirmar);
-        background: rgba(240, 180, 41, 0.12);
+        border: 3px solid var(--estado-espera-borde);
+        background: var(--estado-espera-fondo);
         border-radius: 12px;
-        padding: 14px 16px;
+        padding: 0 16px 14px;
         display: none;
         flex-direction: column;
         gap: 10px;
-        box-shadow: 0 0 0 4px rgba(240, 180, 41, 0.08);
+        overflow: hidden;
       }
       #confirmacion.visible {
         display: flex;
       }
+      /* Barra llena de lado a lado: blanco sobre ambar oscuro, 7.13 de
+         contraste. Es lo que hace que el bloque no se confunda con una
+         tarjeta mas. */
       #confirmacion h2 {
-        margin: 0;
+        margin: 0 -16px 0;
+        padding: 8px 16px;
+        background: var(--estado-espera);
+        color: var(--superficie);
         font-size: 14px;
         letter-spacing: 0.06em;
         text-transform: uppercase;
-        color: var(--confirmar);
       }
       #confirmacion .accion {
         font-family: Consolas, "Courier New", monospace;
@@ -226,7 +327,8 @@
       .tarjeta .campos {
         margin: 0;
         padding: 8px 10px;
-        background: #0d1017;
+        background: var(--superficie);
+        border: 1px solid var(--estado-espera-borde);
         border-radius: 6px;
         display: grid;
         grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
@@ -238,7 +340,7 @@
       #accion-campos dt,
       .tarjeta .campos dt {
         font-family: Consolas, "Courier New", monospace;
-        color: var(--tenue);
+        color: var(--texto-tenue);
         white-space: nowrap;
       }
       #accion-campos dd,
@@ -256,7 +358,7 @@
       .nota-confirmacion {
         margin: 0;
         font-size: 12px;
-        color: var(--tenue);
+        color: var(--texto-tenue);
       }
       .botones {
         display: flex;
@@ -268,7 +370,7 @@
         border: 1px solid var(--borde);
         padding: 8px 16px;
         cursor: pointer;
-        background: var(--panel-alto);
+        background: var(--superficie-alta);
         color: var(--texto);
       }
       button:disabled {
@@ -276,15 +378,15 @@
         cursor: not-allowed;
       }
       #confirmar {
-        background: var(--ok);
-        border-color: var(--ok);
-        color: #06210f;
+        background: var(--estado-ejecutado);
+        border-color: var(--estado-ejecutado);
+        color: var(--superficie);
         font-weight: 600;
       }
       #denegar {
         background: transparent;
-        border-color: var(--fallo);
-        color: var(--fallo);
+        border-color: var(--estado-fallo);
+        color: var(--estado-fallo);
         font-weight: 600;
       }
       form {
@@ -299,23 +401,23 @@
         padding: 10px 12px;
         border-radius: 8px;
         border: 1px solid var(--borde);
-        background: var(--panel);
+        background: var(--superficie);
         color: var(--texto);
       }
       #entrada:disabled {
         opacity: 0.5;
       }
       #enviar {
-        background: var(--acento);
-        border-color: var(--acento);
-        color: #0b1220;
+        background: var(--relleno-neutro);
+        border-color: var(--relleno-neutro);
+        color: var(--superficie);
         font-weight: 600;
       }
       #trabajando {
         display: none;
         align-items: center;
         gap: 8px;
-        color: var(--tenue);
+        color: var(--texto-tenue);
         font-size: 13px;
       }
       #trabajando.visible {
@@ -325,17 +427,7 @@
         width: 8px;
         height: 8px;
         border-radius: 50%;
-        background: var(--acento);
-        animation: latido 1s infinite ease-in-out;
-      }
-      @keyframes latido {
-        0%,
-        100% {
-          opacity: 0.25;
-        }
-        50% {
-          opacity: 1;
-        }
+        background: var(--estado-neutro);
       }
     </style>
   </head>
@@ -343,7 +435,24 @@
     <main>
       <header>
         <h1>Agente conversacional</h1>
-        <span id="estado">sesion nueva</span>
+        <div id="cabecera-derecha">
+          <span id="estado">sesion nueva</span>
+          <button type="button" id="reinicio" class="enlace">
+            Sesion nueva
+          </button>
+          <span id="descartar-aviso" hidden>¿Descartar esta conversacion?</span>
+          <button
+            type="button"
+            id="reinicio-confirmar"
+            class="enlace peligro"
+            hidden
+          >
+            Si, descartar
+          </button>
+          <button type="button" id="reinicio-cancelar" class="enlace" hidden>
+            Cancelar
+          </button>
+        </div>
       </header>
 
       <div id="historial"></div>
@@ -389,6 +498,10 @@
       const enviar = document.getElementById("enviar");
       const formulario = document.getElementById("formulario");
       const estado = document.getElementById("estado");
+      const reinicio = document.getElementById("reinicio");
+      const avisoDescartar = document.getElementById("descartar-aviso");
+      const reinicioConfirmar = document.getElementById("reinicio-confirmar");
+      const reinicioCancelar = document.getElementById("reinicio-cancelar");
 
       let ocupado = false;
       let esperandoConfirmacion = null;
@@ -431,6 +544,83 @@
           destino.appendChild(dt);
           destino.appendChild(dd);
         }
+      }
+
+      /**
+       * Junta en UNA linea los campos que son hermanos hoja del mismo
+       * objeto. Una llamada a contratos_validar con la extraccion entera
+       * pintaba 53 renglones del estilo
+       * "extraccion.campos.pais.confianza: 0.9", cuatro por cada campo del
+       * contrato; asi son 14.
+       *
+       * La regla es por FORMA, no por nombre: si un objeto tiene todos sus
+       * hijos como hojas, va en una linea. No dice nada de "campos" ni de
+       * contratos, asi que cualquier herramienta con esa forma se
+       * beneficia y el front sigue sin saber de que dominio habla.
+       *
+       * NO se renombra nada: fecha_inicio se sigue llamando fecha_inicio,
+       * y la ruta completa se conserva a la izquierda. Es el nombre que
+       * tiene en el maestro, en el esquema del PRD y en el CSV.
+       *
+       * NO se usa en el bloque de aprobacion: ahi cada valor va en su
+       * renglon con la ruta entera, porque es lo que la persona aprueba.
+       */
+      function agruparHermanos(campos) {
+        const salida = [];
+        let i = 0;
+        while (i < campos.length) {
+          const corte = campos[i].campo.lastIndexOf(".");
+          if (corte === -1) {
+            salida.push(campos[i]);
+            i += 1;
+            continue;
+          }
+          const prefijo = campos[i].campo.slice(0, corte);
+          let j = i;
+          while (
+            j < campos.length &&
+            campos[j].campo.lastIndexOf(".") === corte &&
+            campos[j].campo.slice(0, corte) === prefijo
+          ) {
+            j += 1;
+          }
+          if (j - i >= 2) {
+            const partes = [];
+            for (let k = i; k < j; k += 1) {
+              partes.push(
+                campos[k].campo.slice(corte + 1) + ": " + campos[k].valor,
+              );
+            }
+            salida.push({ campo: prefijo, valor: partes.join("  ·  ") });
+            i = j;
+          } else {
+            salida.push(campos[i]);
+            i += 1;
+          }
+        }
+        return salida;
+      }
+
+      /** Argumentos de una tarjeta informativa: agrupados y, si son
+       *  muchos, plegados. Nada se pierde: todo esta tras un clic. */
+      function argumentosDeTarjeta(campos, argumentos) {
+        const agrupados = agruparHermanos(
+          Array.isArray(campos) && campos.length > 0
+            ? campos
+            : aplanar(argumentos),
+        );
+        const lista = document.createElement("dl");
+        lista.className = "campos";
+        pintarCampos(lista, agrupados, argumentos);
+        if (agrupados.length <= 10) {
+          return lista;
+        }
+        const caja = document.createElement("details");
+        const titulo = document.createElement("summary");
+        titulo.textContent = "argumentos (" + agrupados.length + " entradas)";
+        caja.appendChild(titulo);
+        caja.appendChild(lista);
+        return caja;
       }
 
       function listaDeCampos(campos, argumentos) {
@@ -479,7 +669,11 @@
             '<span class="marca"></span></div>';
           nodo.querySelector(".nombre").textContent = evento.nombre;
           nodo.querySelector(".marca").textContent = marca;
-          nodo.appendChild(listaDeCampos(evento.campos, evento.argumentos));
+          // Tarjeta informativa de una llamada YA ejecutada: agrupada.
+          // La del pendiente y el bloque de aprobacion no se tocan.
+          nodo.appendChild(
+            argumentosDeTarjeta(evento.campos, evento.argumentos),
+          );
           const resultado = String(evento.resumen ?? "");
           const salida = document.createElement("pre");
           salida.textContent = resultado;
@@ -539,7 +733,43 @@
         refrescarControles();
       }
 
+      /**
+       * Empezar de cero. Si hay conversacion en curso pide confirmacion
+       * ANTES de descartarla, y la pide en linea: la aplicacion ya usa ese
+       * idioma para aprobar una accion, y un dialogo nativo del navegador
+       * bloquearia la pagina entera.
+       */
+      let pidiendoDescartar = false;
+
+      function hayConversacion() {
+        return sesionId !== null || historial.childElementCount > 0;
+      }
+
+      function pintarReinicio() {
+        reinicio.hidden = pidiendoDescartar;
+        avisoDescartar.hidden = !pidiendoDescartar;
+        reinicioConfirmar.hidden = !pidiendoDescartar;
+        reinicioCancelar.hidden = !pidiendoDescartar;
+        reinicio.disabled = ocupado;
+        reinicioConfirmar.disabled = ocupado;
+      }
+
+      function empezarDeCero() {
+        pidiendoDescartar = false;
+        // El estado de la sesion vive en el servidor; aqui solo se suelta
+        // la referencia. La sesion vieja caduca sola por inactividad.
+        sesionId = null;
+        esperandoConfirmacion = null;
+        historial.replaceChildren();
+        bloque.classList.remove("visible");
+        entrada.value = "";
+        estado.textContent = "sesion nueva";
+        refrescarControles();
+        entrada.focus();
+      }
+
       function refrescarControles() {
+        pintarReinicio();
         const bloqueado = ocupado || Boolean(esperandoConfirmacion);
         entrada.disabled = bloqueado;
         enviar.disabled = bloqueado;
@@ -579,6 +809,31 @@
           refrescarControles();
         }
       }
+
+      reinicio.addEventListener("click", () => {
+        if (ocupado) {
+          return;
+        }
+        // Sin conversacion no hay nada que descartar: se reinicia directo.
+        if (!hayConversacion()) {
+          empezarDeCero();
+          return;
+        }
+        pidiendoDescartar = true;
+        pintarReinicio();
+      });
+
+      reinicioConfirmar.addEventListener("click", () => {
+        if (ocupado) {
+          return;
+        }
+        empezarDeCero();
+      });
+
+      reinicioCancelar.addEventListener("click", () => {
+        pidiendoDescartar = false;
+        pintarReinicio();
+      });
 
       formulario.addEventListener("submit", (evento) => {
         evento.preventDefault();

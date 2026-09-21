@@ -113,7 +113,7 @@ clasificación. Esa duplicación tiene un coste real y ya nos mordió: ver §7,
   puede inspeccionar sin efectos. El registro sí, y por eso hay una verificación
   que comprueba que `contratos_registrar` —y solo ella— exige aprobación.
 
-Consecuencia práctica: de las cinco suites de verificación, **ninguna necesita
+Consecuencia práctica: de las seis suites de verificación, **ninguna necesita
 clave ni red**.
 
 ---
@@ -211,10 +211,10 @@ medidos, para que cualquiera la rehaga:
 
 | Componente | Medido | Tokens aprox. (4 car/token) |
 |---|---|---|
-| `agent/prompt.md` | 5 909 car | 1 477 |
-| `knowledge/proceso.md` | 13 117 car | 3 279 |
+| `modulo/agent.md` (sin frontmatter) | 5 909 car | 1 477 |
+| `modulo/skill/registro-contratos/SKILL.md` (sin frontmatter) | 14 892 car | 3 723 |
 | Declaraciones de las 5 herramientas | 8 747 car | 2 187 |
-| **Contexto fijo por petición** | **27 773 car** | **≈ 6 950** |
+| **Contexto fijo por petición** | **29 548 car** | **≈ 7 390** |
 
 Un mensaje del buzón consume como mínimo tres llamadas —extraer, validar,
 registrar— más la respuesta final, es decir **cuatro envíos al proveedor**, y el
@@ -229,7 +229,7 @@ de 120 000 — que es precisamente el caso que el tope existe para cortar.
 **Qué falta para convertirlo en medición:** correr el buzón completo contra la API
 real y leer `usage.total_tokens`. La instrumentación ya está —el adaptador lo
 traduce y la sesión lo acumula—; lo que falta es la corrida con clave. No se hizo
-porque las cinco suites corren sin red a propósito.
+porque las seis suites corren sin red a propósito.
 
 ---
 
@@ -560,7 +560,8 @@ por palabra entera. No es decisión nuestra, es lo que el esquema pide. El texto
 ### 7.8 Contradicciones entre el conocimiento y el código
 
 La duplicación de reglas en prosa y en código tiene un coste y ya lo pagamos:
-`knowledge/proceso.md` decía que RN4 marca el mensaje como procesado cuando el
+`modulo/skill/registro-contratos/SKILL.md` decía que RN4 marca el mensaje como
+procesado cuando el
 código había dejado de hacerlo, y el agente se lo habría contado a la analista
 **con la autoridad de una regla de sistema**. Se encontraron cinco
 contradicciones y se corrigieron todas.
@@ -755,7 +756,8 @@ declaración por campo.
   que nadie lea el marcador y crea que el front está verificado.
 - **Ninguna suite llama a la API real.** El coste por caso es una estimación
   calculada, no una medición (§4).
-- **No hay verificación de coherencia entre `knowledge/proceso.md` y el código.**
+- **No hay verificación de coherencia entre la capa de conocimiento
+  (`modulo/skill/registro-contratos/SKILL.md`) y el código.**
   Las cinco contradicciones de §7.8 se encontraron leyendo.
 - **El escalón 0,6 no lo ejercita ningún fixture** (S-5). Sí se verifica la regla
   de precedencia que lo evita.

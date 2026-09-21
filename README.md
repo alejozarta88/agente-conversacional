@@ -1,28 +1,50 @@
 # Agente conversacional — Registro de contratos vigentes
 
-Reto técnico 02. Un agente que procesa un buzón de correos con contratos
-adjuntos: los lee, extrae sus datos con una confianza por campo, los valida
-contra un maestro, los registra **solo con aprobación humana** y produce un
-reporte de riesgos.
-
-El proceso que automatiza, las decisiones de diseño y sus límites están en
-**[SOLUCION.md](SOLUCION.md)**. Los supuestos que el enunciado no resuelve —treinta,
-cada uno con su porqué y sus alternativas descartadas— están en
-**[SUPUESTOS.md](SUPUESTOS.md)**.
+Reto técnico 02. Los contratos firmados llegan por correo y nadie los registra
+de forma sistemática, así que no se sabe qué está vigente, qué vence ni qué
+pólizas faltan por constituir. Lo usa la analista administrativa, dueña del
+maestro de contratos. El agente lee el buzón, extrae los campos de cada
+contrato con una confianza por campo, los clasifica contra el maestro, los
+registra **solo cuando una persona lo aprueba** y produce un reporte de riesgos.
 
 ---
 
-## Por dónde empezar a leer el código
+## Por dónde empezar
 
-En este orden, y son dos archivos:
+| Quiero… | Dónde |
+|---|---|
+| **Verlo funcionando** | **[agente-conversacional.onrender.com](https://agente-conversacional.onrender.com)** — pega en el chat el prompt de abajo |
+| **Correrlo sin clave y sin red** | `pnpm install`, luego `pnpm demo`. Procesa los seis mensajes del buzón y termina con el reporte de alertas |
+| **Entender el código** | `src/tools/contrato.ts` primero: todo lo demás descansa en él. Luego `src/llm/adapter.ts`, que son solo tipos y es lo que permite probar el ciclo entero sin red |
+| **Entender las decisiones** | [SOLUCION.md](SOLUCION.md) — §3 el ciclo y la confirmación humana, §5 cómo se calcula la confianza y dónde no entra el modelo, §7 las nueve decisiones con su alternativa descartada, §11 la deuda técnica |
+| **Entender el proceso sin leer código** | [modulo/skill/registro-contratos/SKILL.md](modulo/skill/registro-contratos/SKILL.md) — las reglas de negocio en prosa, sin una línea de código |
+| **Ver que no inventé nada** | [SUPUESTOS.md](SUPUESTOS.md) — treinta supuestos sobre lo que el PRD no resuelve, cada uno con su porqué y lo que descarté |
 
-1. **`src/tools/contrato.ts`** — el contrato de herramientas. Todo lo demás
-   descansa aquí: el sobre JSON, la validación con zod, la contención de
-   excepciones y la clasificación de fallos.
-2. **`src/llm/adapter.ts`** — la interfaz del proveedor. Son solo tipos, y es
-   lo que permite que el ciclo se pruebe entero sin red ni clave.
+El prompt del §11 del PRD, para pegar tal cual en una sesión nueva:
 
-Con esos dos, el resto se lee solo.
+```
+Procesa el buzón de contratos con fecha de hoy 2026-09-03. Registra lo que
+esté limpio, muéstrame lo que requiere revisión campo por campo y termina
+con el reporte de alertas. No registres nada dudoso sin preguntarme.
+```
+
+---
+
+## Lo que hay que mirar
+
+- **El flujo no se puede atajar.** `contratos_validar` devuelve un `comprobante`
+  y `contratos_registrar` lo exige y lo recalcula: `comprobanteDe()` en
+  `src/tools/contratos.ts:1434`, comprobado en `registrarValidacion()`, línea
+  2291. Sin validar, no se escribe.
+- **La confirmación humana la intercepta el ciclo, no la negocia el modelo.**
+  `ejecutarLote()` en `src/agente/ciclo.ts:437` detiene la llamada antes de
+  ejecutarla; qué se detiene lo fija `EXIGEN_APROBACION` en
+  `src/registro.ts:43`, y hoy es una sola herramienta.
+- **117 verificaciones, ninguna necesita clave ni red.** `pnpm prueba` las corre
+  todas más el typecheck. La única que sale a internet es `pnpm humo`.
+- **El fixture nunca se modifica.** Se compara su huella —ruta, tamaño y fecha—
+  antes y después de toda la suite: `prueba-contratos.ts:1942`. Y que **solo** se
+  escribe en `out/`, en la línea 2239.
 
 ---
 
@@ -117,7 +139,7 @@ el ciclo detiene para que una persona apruebe los argumentos exactos.
 pnpm prueba
 ```
 
-Corre las cinco suites y el typecheck, y falla si falla cualquiera. Por separado:
+Corre las seis suites y el typecheck, y falla si falla cualquiera. Por separado:
 
 | Comando | Qué verifica |
 |---|---|
@@ -143,6 +165,9 @@ sobre `web/index.html` para que no se reviertan las decisiones de maquetado, per
 no monta navegador y no sabe si la página se ve bien. Su título lo dice. Para
 comprobarlo, abre el chat, estrecha la ventana y mira que el bloque de aprobación
 quede siempre visible, que las tarjetas no se corten y que el historial baje solo.
+Y que el contador de mensajes y el enlace **Sesion nueva** se vean a la vez: al
+pulsarlo con una conversación en curso debe pedir confirmación antes de
+descartarla.
 
 ---
 
