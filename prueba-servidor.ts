@@ -765,6 +765,22 @@ async function principal(): Promise<void> {
         "--lienzo: #f",
         "tema claro: el lienzo es claro",
       ],
+      [
+        "--estado-espera-relleno",
+        "la barra de aprobacion lleva ambar brillante con texto oscuro",
+      ],
+      [
+        "accion-origen",
+        "el bloque de aprobacion dice de que mensaje es",
+      ],
+      [
+        "function origenDe(",
+        "el mensaje se saca de los argumentos de forma generica",
+      ],
+      [
+        "abre una sesion nueva para seguir",
+        "el contador avisa antes de agotar el cupo de mensajes",
+      ],
     ];
     const faltan = exigidos
       .filter(([aguja]) => !html.includes(aguja))

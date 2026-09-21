@@ -33,8 +33,11 @@
         (componentes de interfaz). Los mas ajustados, que son los que
         importan porque son el texto pequeno y el monoespaciado:
           texto-tenue sobre superficie ....... 8.75
+          barra de aprobacion, texto oscuro .. 8.84
+          estado-espera como texto, blanco ... 5.93
           estado-neutro sobre lienzo ......... 5.41
           estado-ejecutado sobre su fondo .... 5.70
+          estado-espera-borde contra lienzo .. 4.26
           borde sobre superficie ............. 3.09
       */
       :root {
@@ -56,9 +59,15 @@
         --estado-fallo: #a8201a;
         --estado-fallo-fondo: #fbeae9;
 
-        --estado-espera: #7a4f00;
-        --estado-espera-fondo: #fcefd2;
-        --estado-espera-borde: #a06800;
+        /* Ambar de verdad, tono 41, no marron. La barra NO lleva texto
+           blanco: un ambar lo bastante brillante para parecerlo no puede
+           sostener blanco encima con 4.5:1. Se invierte el contraste,
+           relleno brillante con texto oscuro, y asi el color es ambar y
+           el contraste sube en vez de bajar. */
+        --estado-espera: #8a5a00;
+        --estado-espera-fondo: #fef3c7;
+        --estado-espera-borde: #9c6a00;
+        --estado-espera-relleno: #f0a500;
       }
       * {
         box-sizing: border-box;
@@ -144,6 +153,11 @@
         font-size: 13px;
         color: var(--texto-tenue);
         white-space: nowrap;
+      }
+      /* Con el aviso de cupo el texto es largo: tiene que poder envolver. */
+      #estado.escaso {
+        white-space: normal;
+        text-align: right;
       }
       .enlace {
         font: inherit;
@@ -305,17 +319,39 @@
       #confirmacion.visible {
         display: flex;
       }
-      /* Barra llena de lado a lado: blanco sobre ambar oscuro, 7.13 de
-         contraste. Es lo que hace que el bloque no se confunda con una
-         tarjeta mas. */
+      /* Barra llena de lado a lado: texto oscuro sobre ambar brillante,
+         8.84 de contraste. Es lo que hace que el bloque no se confunda
+         con una tarjeta mas. */
       #confirmacion h2 {
         margin: 0 -16px 0;
         padding: 8px 16px;
-        background: var(--estado-espera);
-        color: var(--superficie);
+        background: var(--estado-espera-relleno);
+        color: var(--texto);
         font-size: 14px;
         letter-spacing: 0.06em;
         text-transform: uppercase;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      /* De que mensaje es esta aprobacion. Con seis seguidas, sin esto
+         todas se ven iguales. */
+      #accion-origen {
+        font-family: Consolas, "Courier New", monospace;
+        text-transform: none;
+        letter-spacing: 0;
+        font-weight: 700;
+      }
+      #accion-origen:empty {
+        display: none;
+      }
+      /* Aviso de cupo: se refuerza con contraste y palabras, NO con
+         color: el color esta reservado al estado de una llamada. */
+      #estado.escaso {
+        color: var(--texto);
+        font-weight: 600;
       }
       #confirmacion .accion {
         font-family: Consolas, "Courier New", monospace;
@@ -460,7 +496,10 @@
       <div id="trabajando"><span class="punto"></span> El agente esta trabajando...</div>
 
       <section id="confirmacion">
-        <h2>Esta accion necesita tu confirmacion</h2>
+        <h2>
+          <span>Esta accion necesita tu confirmacion</span>
+          <span id="accion-origen"></span>
+        </h2>
         <div class="accion" id="accion-nombre"></div>
         <dl id="accion-campos"></dl>
         <p class="nota-confirmacion">
@@ -494,6 +533,7 @@
       const bloque = document.getElementById("confirmacion");
       const accionNombre = document.getElementById("accion-nombre");
       const accionCampos = document.getElementById("accion-campos");
+      const accionOrigen = document.getElementById("accion-origen");
       const entrada = document.getElementById("entrada");
       const enviar = document.getElementById("enviar");
       const formulario = document.getElementById("formulario");
@@ -505,6 +545,23 @@
 
       let ocupado = false;
       let esperandoConfirmacion = null;
+
+      /**
+       * A que mensaje se refiere una llamada.
+       *
+       * Generico: si los argumentos traen un `mensaje_id` de tipo string,
+       * se usa; si no, se devuelve "". El front NO sabe de contratos. Es
+       * la misma convencion que ya usa el ciclo para escribir mensaje_id
+       * en out/log.jsonl (RN7): una clave de nombre acordado, no un tipo
+       * que este lado conozca.
+       */
+      function origenDe(argumentos) {
+        if (argumentos === null || typeof argumentos !== "object") {
+          return "";
+        }
+        const id = argumentos.mensaje_id;
+        return typeof id === "string" ? id : "";
+      }
 
       /**
        * El servidor manda los campos ya aplanados (ciclo.ts). Si por lo que
@@ -712,6 +769,7 @@
         const yaEstaba = bloque.classList.contains("visible");
         if (esperandoConfirmacion) {
           accionNombre.textContent = esperandoConfirmacion.nombre;
+          accionOrigen.textContent = origenDe(esperandoConfirmacion.argumentos);
           pintarCampos(
             accionCampos,
             esperandoConfirmacion.campos,
@@ -728,8 +786,23 @@
           bloque.classList.remove("visible");
         }
 
-        estado.textContent =
+        const quedan = vista.mensajesPorSesion - vista.mensajesUsados;
+        const base =
           vista.mensajesUsados + " de " + vista.mensajesPorSesion + " mensajes";
+        // Nadie sabe que pasa al llegar al tope si no se lo dices antes.
+        if (quedan <= 5) {
+          estado.textContent =
+            base +
+            (quedan <= 0
+              ? " · sin cupo: abre una sesion nueva para seguir"
+              : " · quedan " +
+                quedan +
+                "; al agotarlas habra que abrir una sesion nueva");
+          estado.classList.add("escaso");
+        } else {
+          estado.textContent = base;
+          estado.classList.remove("escaso");
+        }
         refrescarControles();
       }
 
