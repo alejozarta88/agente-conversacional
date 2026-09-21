@@ -1,0 +1,22 @@
+# Nunca al contexto de construccion.
+.env
+.git
+.gitignore
+node_modules
+out
+dist
+
+# Lo que no necesita la imagen: las verificaciones corren en desarrollo,
+# no dentro del contenedor, y la imagen final solo lleva src compilado.
+prueba-contrato.ts
+prueba-ciclo.ts
+prueba-adaptador.ts
+prueba-servidor.ts
+prueba-humo.ts
+demo.ts
+
+# Ruido del editor y del sistema.
+.vscode
+.idea
+*.log
+Thumbs.db

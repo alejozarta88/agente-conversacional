@@ -15,7 +15,17 @@ import { borrar, eco, fallar } from "./tools/laboratorio.js";
  * fichero de configuracion.
  */
 
-const PUERTO = Number(process.env["PUERTO"] ?? 3000);
+/**
+ * Puerto, por orden de precedencia: PORT (la que inyectan los servicios de
+ * despliegue) > PUERTO (la nuestra, comoda en local) > 3000.
+ * Bind, por orden de precedencia: HOST > 127.0.0.1. Solo loopback por
+ * defecto: para exponerlo, como dentro de un contenedor, hay que pedirlo
+ * explicitamente con HOST=0.0.0.0.
+ */
+const PUERTO = Number(
+  process.env["PORT"] ?? process.env["PUERTO"] ?? 3000,
+);
+const HOST = process.env["HOST"] ?? "127.0.0.1";
 
 /**
  * El PRD pide que out\ se limpie al iniciar. Se vacia el CONTENIDO del
@@ -54,7 +64,7 @@ const servidor = crearServidor({
   },
 });
 
-servidor.listen(PUERTO, "127.0.0.1", () => {
-  console.log(`Agente escuchando en http://127.0.0.1:${PUERTO}`);
+servidor.listen(PUERTO, HOST, () => {
+  console.log(`Agente escuchando en http://${HOST}:${PUERTO}`);
   console.log(`Modelo: ${adaptador.config.modelo}`);
 });
