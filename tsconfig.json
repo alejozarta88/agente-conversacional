@@ -10,5 +10,5 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*.ts", "prueba-contrato.ts", "prueba-ciclo.ts", "prueba-adaptador.ts", "prueba-servidor.ts", "demo.ts", "prueba-humo.ts"]
+  "include": ["src/**/*.ts", "prueba-contrato.ts", "prueba-contratos.ts", "prueba-modulo.ts", "modulo/**/*.ts", "prueba-ciclo.ts", "prueba-adaptador.ts", "prueba-servidor.ts", "demo.ts", "prueba-humo.ts"]
 }

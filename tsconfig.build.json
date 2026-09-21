@@ -7,5 +7,12 @@
     "declaration": false,
     "sourceMap": false
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  // ejemplo.ts y laboratorio.ts son herramientas de juguete: existen para
+  // que prueba-contrato y prueba-ciclo ejerciten el contrato y la guardia
+  // sin tocar el dominio. No estan en el registro del agente, asi que no
+  // son explotables, pero tampoco pintan nada en la imagen: el README
+  // promete que ahi solo viaja node, zod y el JavaScript compilado del
+  // agente. Fuera de dist\, se quedan en desarrollo.
+  "exclude": ["src/tools/ejemplo.ts", "src/tools/laboratorio.ts"]
 }

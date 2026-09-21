@@ -30,12 +30,44 @@
         justify-content: center;
       }
       main {
-        width: min(820px, 100%);
-        min-height: 100vh;
+        /* Ancho util: aprovecha la pantalla, con tope para que la linea
+           siga siendo legible. */
+        width: min(1180px, 100%);
+        /* height, NO min-height. Con min-height main crecia con el
+           contenido, la pagina entera se desplazaba y #historial nunca
+           llegaba a ser el contenedor desplazable: por eso el bloque de
+           aprobacion quedaba fuera de pantalla tras seis tarjetas. */
+        height: 100dvh;
+        max-height: 100dvh;
         display: flex;
         flex-direction: column;
         padding: 16px;
         gap: 12px;
+      }
+      @supports not (height: 100dvh) {
+        main {
+          height: 100vh;
+          max-height: 100vh;
+        }
+      }
+      /* Ventana estrecha: sin margenes que roben ancho y burbujas a lo ancho. */
+      @media (max-width: 640px) {
+        main {
+          padding: 10px;
+          gap: 8px;
+        }
+        .burbuja {
+          max-width: 100%;
+        }
+        #confirmacion {
+          padding: 12px;
+        }
+        .botones {
+          flex-wrap: wrap;
+        }
+        .botones button {
+          flex: 1 1 140px;
+        }
       }
       header {
         display: flex;
@@ -120,10 +152,29 @@
         padding: 6px 8px;
         background: #0d1017;
         border-radius: 6px;
-        overflow-x: auto;
+        /* Salta de linea en vez de desplazarse: el evaluador tiene que
+           poder LEER lo que devolvio cada llamada. */
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        word-break: break-word;
         font-family: Consolas, "Courier New", monospace;
         font-size: 12px;
         color: var(--tenue);
+      }
+      /* Resultados largos: plegados por defecto, desplegables de un clic. */
+      .tarjeta details > summary {
+        cursor: pointer;
+        font-size: 12px;
+        color: var(--tenue);
+        margin-top: 6px;
+        list-style: revert;
+      }
+      .tarjeta details[open] > summary {
+        margin-bottom: 0;
+      }
+      .tarjeta details pre {
+        max-height: 40vh;
+        overflow-y: auto;
       }
       .error,
       .aviso {
@@ -141,6 +192,11 @@
         border: 1px solid var(--aviso);
       }
       #confirmacion {
+        /* Pegado al fondo del area visible: aunque el historial sea largo,
+           el control humano no puede quedar fuera de pantalla. */
+        position: sticky;
+        bottom: 0;
+        z-index: 2;
         border: 2px solid var(--confirmar);
         background: rgba(240, 180, 41, 0.12);
         border-radius: 12px;
@@ -165,14 +221,42 @@
         font-size: 15px;
         font-weight: 600;
       }
-      #confirmacion pre {
+      /* Campo a campo, no un volcado JSON: es lo que la persona aprueba. */
+      #accion-campos,
+      .tarjeta .campos {
         margin: 0;
         padding: 8px 10px;
         background: #0d1017;
         border-radius: 6px;
+        display: grid;
+        grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+        gap: 4px 14px;
+        font-size: 13px;
+        max-height: 34vh;
+        overflow-y: auto;
+      }
+      #accion-campos dt,
+      .tarjeta .campos dt {
         font-family: Consolas, "Courier New", monospace;
+        color: var(--tenue);
+        white-space: nowrap;
+      }
+      #accion-campos dd,
+      .tarjeta .campos dd {
+        margin: 0;
+        font-family: Consolas, "Courier New", monospace;
+        font-weight: 600;
+        overflow-wrap: anywhere;
+      }
+      .tarjeta .campos {
+        margin: 6px 0 0;
         font-size: 12px;
-        overflow-x: auto;
+        max-height: none;
+      }
+      .nota-confirmacion {
+        margin: 0;
+        font-size: 12px;
+        color: var(--tenue);
       }
       .botones {
         display: flex;
@@ -269,7 +353,11 @@
       <section id="confirmacion">
         <h2>Esta accion necesita tu confirmacion</h2>
         <div class="accion" id="accion-nombre"></div>
-        <pre id="accion-argumentos"></pre>
+        <dl id="accion-campos"></dl>
+        <p class="nota-confirmacion">
+          Revisa cada valor antes de aprobar: es exactamente esto lo que se
+          ejecutara.
+        </p>
         <div class="botones">
           <button id="confirmar" type="button">Confirmar y ejecutar</button>
           <button id="denegar" type="button">Denegar</button>
@@ -296,7 +384,7 @@
       const trabajando = document.getElementById("trabajando");
       const bloque = document.getElementById("confirmacion");
       const accionNombre = document.getElementById("accion-nombre");
-      const accionArgumentos = document.getElementById("accion-argumentos");
+      const accionCampos = document.getElementById("accion-campos");
       const entrada = document.getElementById("entrada");
       const enviar = document.getElementById("enviar");
       const formulario = document.getElementById("formulario");
@@ -305,12 +393,51 @@
       let ocupado = false;
       let esperandoConfirmacion = null;
 
-      function bonito(valor) {
-        try {
-          return JSON.stringify(valor, null, 2);
-        } catch {
-          return String(valor);
+      /**
+       * El servidor manda los campos ya aplanados (ciclo.ts). Si por lo que
+       * sea no llegan, se aplanan aqui con la misma forma: asi el bloque
+       * nunca vuelve a caer en el volcado JSON.
+       */
+      function aplanar(valor, prefijo) {
+        prefijo = prefijo || "";
+        if (valor === null || typeof valor !== "object" || Array.isArray(valor)) {
+          return [{ campo: prefijo, valor: JSON.stringify(valor) }];
         }
+        const salida = [];
+        for (const clave of Object.keys(valor)) {
+          const ruta = prefijo === "" ? clave : prefijo + "." + clave;
+          salida.push(...aplanar(valor[clave], ruta));
+        }
+        return salida;
+      }
+
+      function pintarCampos(destino, campos, argumentos) {
+        const filas =
+          Array.isArray(campos) && campos.length > 0
+            ? campos
+            : aplanar(argumentos);
+        destino.replaceChildren();
+        if (filas.length === 0) {
+          const dt = document.createElement("dt");
+          dt.textContent = "(sin argumentos)";
+          destino.appendChild(dt);
+          return;
+        }
+        for (const fila of filas) {
+          const dt = document.createElement("dt");
+          dt.textContent = fila.campo + ":";
+          const dd = document.createElement("dd");
+          dd.textContent = fila.valor;
+          destino.appendChild(dt);
+          destino.appendChild(dd);
+        }
+      }
+
+      function listaDeCampos(campos, argumentos) {
+        const lista = document.createElement("dl");
+        lista.className = "campos";
+        pintarCampos(lista, campos, argumentos);
+        return lista;
       }
 
       function pintarEvento(evento) {
@@ -330,9 +457,7 @@
             '<div class="cabecera"><span class="nombre"></span>' +
             '<span class="marca">esperando confirmacion</span></div>';
           nodo.querySelector(".nombre").textContent = evento.nombre;
-          const pre = document.createElement("pre");
-          pre.textContent = bonito(evento.argumentos);
-          nodo.appendChild(pre);
+          nodo.appendChild(listaDeCampos(evento.campos, evento.argumentos));
         } else if (evento.tipo === "herramienta") {
           const clase =
             evento.disposicion !== "ejecutada"
@@ -354,12 +479,28 @@
             '<span class="marca"></span></div>';
           nodo.querySelector(".nombre").textContent = evento.nombre;
           nodo.querySelector(".marca").textContent = marca;
-          const args = document.createElement("pre");
-          args.textContent = "argumentos: " + bonito(evento.argumentos);
-          nodo.appendChild(args);
+          nodo.appendChild(listaDeCampos(evento.campos, evento.argumentos));
+          const resultado = String(evento.resumen ?? "");
           const salida = document.createElement("pre");
-          salida.textContent = "resultado: " + evento.resumen;
-          nodo.appendChild(salida);
+          salida.textContent = resultado;
+          if (resultado.length > 240) {
+            // Largo: plegado, pero legible entero de un clic. Antes se
+            // cortaba con barra horizontal y no habia forma de leerlo.
+            const caja = document.createElement("details");
+            const titulo = document.createElement("summary");
+            titulo.textContent =
+              "resultado (" + resultado.length + " caracteres)";
+            caja.appendChild(titulo);
+            caja.appendChild(salida);
+            nodo.appendChild(caja);
+          } else {
+            const rotulo = document.createElement("div");
+            rotulo.className = "marca";
+            rotulo.textContent = "resultado";
+            rotulo.style.marginTop = "6px";
+            nodo.appendChild(rotulo);
+            nodo.appendChild(salida);
+          }
         } else {
           return;
         }
@@ -374,12 +515,21 @@
         historial.scrollTop = historial.scrollHeight;
 
         esperandoConfirmacion = vista.esperandoConfirmacion;
+        const yaEstaba = bloque.classList.contains("visible");
         if (esperandoConfirmacion) {
           accionNombre.textContent = esperandoConfirmacion.nombre;
-          accionArgumentos.textContent = bonito(
+          pintarCampos(
+            accionCampos,
+            esperandoConfirmacion.campos,
             esperandoConfirmacion.argumentos,
           );
           bloque.classList.add("visible");
+          if (!yaEstaba) {
+            // El control humano no puede quedar fuera de pantalla.
+            requestAnimationFrame(function () {
+              bloque.scrollIntoView({ behavior: "smooth", block: "center" });
+            });
+          }
         } else {
           bloque.classList.remove("visible");
         }

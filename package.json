@@ -1,20 +1,33 @@
 {
   "name": "agente-conversacional",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Agente conversacional que registra contratos vigentes desde un buzon de correo: lee, extrae con confianza por campo, valida contra el maestro, registra bajo aprobacion humana y reporta riesgos.",
+  "main": "src/inicio.ts",
   "scripts": {
+    "prueba": "pnpm prueba-contrato && pnpm prueba-ciclo && pnpm prueba-adaptador && pnpm prueba-servidor && pnpm prueba-contratos && pnpm prueba-modulo && pnpm typecheck",
     "typecheck": "tsc --noEmit",
     "prueba-contrato": "tsx prueba-contrato.ts",
+    "prueba-contratos": "tsx prueba-contratos.ts",
+    "prueba-modulo": "tsx prueba-modulo.ts",
     "prueba-ciclo": "tsx prueba-ciclo.ts",
     "prueba-adaptador": "tsx prueba-adaptador.ts",
-    "inicio": "node --env-file-if-exists=.env --import tsx src/inicio.ts",
-    "demo": "tsx demo.ts",
     "prueba-servidor": "tsx prueba-servidor.ts",
-    "humo": "node --env-file-if-exists=.env --import tsx prueba-humo.ts"
+    "demo": "tsx demo.ts",
+    "inicio": "node --env-file-if-exists=.env --import tsx src/inicio.ts",
+    "humo": "node --env-file-if-exists=.env --import tsx prueba-humo.ts",
+    "build": "docker build -t agente-conversacional .",
+    "compilar": "tsc -p tsconfig.build.json"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "agente",
+    "llm",
+    "tool-calling",
+    "typescript",
+    "zod",
+    "confirmacion-humana",
+    "contratos"
+  ],
+  "author": "Mario Zarta",
   "license": "ISC",
   "devEngines": {
     "packageManager": {

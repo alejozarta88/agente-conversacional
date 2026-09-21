@@ -7,6 +7,7 @@ import {
   type Mensaje,
   type PeticionLlamada,
   type RespuestaProveedor,
+  type UsoTokens,
 } from "./adapter.js";
 
 /**
@@ -180,6 +181,26 @@ function argumentosDeLlamada(crudos: string): unknown {
   }
 }
 
+/** El bloque usage de la respuesta, si viene y es legible. */
+function usoDeOpenAI(raiz: Record<string, unknown> | undefined): UsoTokens | undefined {
+  const bruto = raiz?.["usage"];
+  if (typeof bruto !== "object" || bruto === null) {
+    return undefined;
+  }
+  const uso = bruto as Record<string, unknown>;
+  const entrada = uso["prompt_tokens"];
+  const salida = uso["completion_tokens"];
+  const total = uso["total_tokens"];
+  if (typeof total !== "number") {
+    return undefined;
+  }
+  return {
+    entrada: typeof entrada === "number" ? entrada : 0,
+    salida: typeof salida === "number" ? salida : 0,
+    total,
+  };
+}
+
 function desdeOpenAI(cuerpo: unknown): RespuestaProveedor {
   const raiz = leerObjeto(cuerpo);
   const opciones = raiz?.["choices"];
@@ -189,6 +210,7 @@ function desdeOpenAI(cuerpo: unknown): RespuestaProveedor {
       codigo: "respuesta_ilegible",
     });
   }
+  const uso = usoDeOpenAI(raiz);
   const primera = leerObjeto(opciones[0]);
   const mensaje = leerObjeto(primera?.["message"]);
   if (mensaje === undefined) {
@@ -224,9 +246,11 @@ function desdeOpenAI(cuerpo: unknown): RespuestaProveedor {
   }
 
   if (llamadas.length > 0) {
-    return { tipo: "llamadas", texto, llamadas };
+    return uso === undefined
+      ? { tipo: "llamadas", texto, llamadas }
+      : { tipo: "llamadas", texto, llamadas, uso };
   }
-  return { tipo: "texto", texto };
+  return uso === undefined ? { tipo: "texto", texto } : { tipo: "texto", texto, uso };
 }
 
 function mensajeDeError(estado: number, cuerpo: string): string {

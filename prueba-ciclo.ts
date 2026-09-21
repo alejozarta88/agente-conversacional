@@ -72,6 +72,18 @@ class ProveedorLento implements AdaptadorProveedor {
   }
 }
 
+/** Lee el sobre crudo de una llamada, sin interpretar su prosa. */
+function leerCrudo(crudo: string): Record<string, unknown> {
+  try {
+    const analizado: unknown = JSON.parse(crudo);
+    return typeof analizado === "object" && analizado !== null
+      ? (analizado as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 function marcar(disposicion: string, clase: ClaseError | null): string {
   return `${disposicion}/${clase ?? "-"}`;
 }
@@ -714,6 +726,224 @@ async function principal(): Promise<void> {
         obtenidas === esperadas,
       `esperadas=[${esperadas}]
    obtenidas=[${obtenidas}]`,
+    );
+  }
+
+  // 14. Los tres sobres de "no corrio" son distinguibles por MAQUINA.
+  //
+  // El fallo que motiva esto: las tres situaciones daban
+  // {ok:false, error:"<prosa>"} y solo se distinguian leyendo el texto. Un
+  // modelo leyo "queda en espera detras de X" y lo reporto como denegada.
+  {
+    reiniciarEfectos();
+    const adaptador = new ProveedorFalso([
+      {
+        tipo: "llamadas",
+        llamadas: [
+          { nombre: "laboratorio_borrar", argumentos: { recurso: "uno" } },
+          { nombre: "laboratorio_borrar", argumentos: { recurso: "dos" } },
+          { nombre: "laboratorio_borrar", argumentos: { recurso: "tres" } },
+        ],
+      },
+      { tipo: "texto", texto: "listo" },
+    ]);
+    const primero = await ejecutarTurno({
+      historial: [],
+      mensajeUsuario: "borra los tres",
+      registro,
+      adaptador,
+      configuracion: configuracion(),
+    });
+    const pendiente = primero.esperandoConfirmacion;
+    const retenida = primero.llamadas[0];
+    const detras = primero.llamadas[1];
+
+    const problemas: string[] = [];
+    let sobreDenegada: Record<string, unknown> = {};
+    if (pendiente === undefined) {
+      problemas.push("no quedo ninguna llamada retenida");
+    } else {
+      const segundo = await ejecutarTurno({
+        historial: primero.historial,
+        mensajeUsuario: "",
+        registro,
+        adaptador,
+        configuracion: configuracion(),
+        confirmacion: { pendiente, aprobada: false, motivo: "no quiero" },
+      });
+      sobreDenegada = leerCrudo(segundo.llamadas[0]?.resultado ?? "{}");
+    }
+
+    const sobreRetenida = leerCrudo(retenida?.resultado ?? "{}");
+    const sobreDetras = leerCrudo(detras?.resultado ?? "{}");
+
+    if (sobreRetenida["estado"] !== "espera_aprobacion") {
+      problemas.push(`retenida.estado=${String(sobreRetenida["estado"])}`);
+    }
+    if (sobreDetras["estado"] !== "no_alcanzada") {
+      problemas.push(`detras.estado=${String(sobreDetras["estado"])}`);
+    }
+    if (sobreDenegada["estado"] !== "denegada") {
+      problemas.push(`denegada.estado=${String(sobreDenegada["estado"])}`);
+    }
+    for (const [nombre, sobre] of [
+      ["retenida", sobreRetenida],
+      ["detras", sobreDetras],
+      ["denegada", sobreDenegada],
+    ] as const) {
+      if (sobre["ejecutada"] !== false) {
+        problemas.push(`${nombre} no declara ejecutada:false`);
+      }
+    }
+    // Lo que de verdad se arregla: que NO haya que leer la prosa.
+    const estados = new Set([
+      sobreRetenida["estado"],
+      sobreDetras["estado"],
+      sobreDenegada["estado"],
+    ]);
+    if (estados.size !== 3) {
+      problemas.push("los tres estados no son distintos entre si");
+    }
+    if (efectos.borrados.length !== 0) {
+      problemas.push(`se ejecuto algo: [${efectos.borrados.join(", ")}]`);
+    }
+
+    verificar(
+      "retenida, no alcanzada y denegada se distinguen por campo, no por texto",
+      problemas.length === 0,
+      problemas.length === 0
+        ? "estado = espera_aprobacion | no_alcanzada | denegada, con ejecutada:false en las tres y borrados=[]"
+        : problemas.join("; "),
+    );
+  }
+
+  // 15. Denegar una no arrastra a las de detras.
+  {
+    reiniciarEfectos();
+    const adaptador = new ProveedorFalso([
+      {
+        tipo: "llamadas",
+        llamadas: [
+          { nombre: "laboratorio_borrar", argumentos: { recurso: "uno" } },
+          { nombre: "laboratorio_borrar", argumentos: { recurso: "dos" } },
+        ],
+      },
+      { tipo: "texto", texto: "listo" },
+    ]);
+    const primero = await ejecutarTurno({
+      historial: [],
+      mensajeUsuario: "borra los dos",
+      registro,
+      adaptador,
+      configuracion: configuracion(),
+    });
+    const problemas: string[] = [];
+    let detalle = "";
+    if (primero.esperandoConfirmacion === undefined) {
+      problemas.push("no quedo ninguna retenida");
+    } else {
+      const segundo = await ejecutarTurno({
+        historial: primero.historial,
+        mensajeUsuario: "",
+        registro,
+        adaptador,
+        configuracion: configuracion(),
+        confirmacion: {
+          pendiente: primero.esperandoConfirmacion,
+          aprobada: false,
+          motivo: "no quiero el uno",
+        },
+      });
+      // La de detras NO se pierde: vuelve a pedir su propia decision.
+      if (segundo.motivoFin !== "confirmacion") {
+        problemas.push(`tras denegar, motivoFin=${segundo.motivoFin}`);
+      }
+      const siguiente = segundo.esperandoConfirmacion;
+      if (siguiente === undefined) {
+        problemas.push("la llamada de detras se perdio");
+      } else {
+        const tercero = await ejecutarTurno({
+          historial: segundo.historial,
+          mensajeUsuario: "",
+          registro,
+          adaptador,
+          configuracion: configuracion(),
+          confirmacion: { pendiente: siguiente, aprobada: true },
+        });
+        if (efectos.borrados.length !== 1 || efectos.borrados[0] !== "dos") {
+          problemas.push(`borrados=[${efectos.borrados.join(", ")}]`);
+        }
+        detalle = `tras denegar "uno" la siguiente vuelve a pedir decision; al aprobarla borrados=[${efectos.borrados.join(", ")}] motivoFin=${tercero.motivoFin}`;
+      }
+    }
+    verificar(
+      "denegar una no arrastra a las de detras: la siguiente pide su propia decision",
+      problemas.length === 0,
+      problemas.length === 0 ? detalle : problemas.join("; "),
+    );
+  }
+
+  // 16. Tope de tokens por sesion: corta el turno y no lanza.
+  {
+    reiniciarEfectos();
+    // El proveedor falso no reporta uso, asi que se estima a 4 caracteres
+    // por token. Un tope de 1 token garantiza que el segundo envio ya no
+    // tiene presupuesto.
+    const adaptador = new ProveedorFalso(
+      [
+        { tipo: "llamadas", llamadas: [{ nombre: "laboratorio_eco", argumentos: { texto: "uno" } }] },
+        { tipo: "texto", texto: "no deberia llegar aqui" },
+      ],
+      { alAgotar: { modo: "texto", texto: "fin" } },
+    );
+    const resultado = await ejecutarTurno({
+      historial: [],
+      mensajeUsuario: "haz algo",
+      registro,
+      adaptador,
+      configuracion: {
+        ...configuracion(),
+        topeTokensSesion: 1,
+        tokensGastadosAntes: 0,
+      },
+    });
+    const problemas: string[] = [];
+    if (resultado.motivoFin !== "tope-tokens") {
+      problemas.push(`motivoFin=${resultado.motivoFin}`);
+    }
+    if (resultado.tokensUsados <= 0) {
+      problemas.push("no conto ningun token");
+    }
+    if (!resultado.respuesta.includes("tope")) {
+      problemas.push("el aviso no explica que paso");
+    }
+    if (adaptador.envios !== 1) {
+      problemas.push(`hizo ${adaptador.envios} envios: deberia cortar tras el primero`);
+    }
+    verificar(
+      "tope de tokens por sesion: corta el turno, avisa y no gasta otro envio",
+      problemas.length === 0,
+      problemas.length === 0
+        ? `motivoFin=tope-tokens, tokensUsados=${resultado.tokensUsados} (estimados: el proveedor falso no reporta uso), envios=${adaptador.envios}`
+        : problemas.join("; "),
+    );
+  }
+
+  // 17. Sin tope configurado, nada cambia.
+  {
+    reiniciarEfectos();
+    const adaptador = new ProveedorFalso([{ tipo: "texto", texto: "hola" }]);
+    const resultado = await ejecutarTurno({
+      historial: [],
+      mensajeUsuario: "hola",
+      registro,
+      adaptador,
+      configuracion: configuracion(),
+    });
+    verificar(
+      "sin tope de tokens el turno corre normal, pero el consumo se cuenta igual",
+      resultado.motivoFin === "texto" && resultado.tokensUsados > 0,
+      `motivoFin=${resultado.motivoFin} tokensUsados=${resultado.tokensUsados}`,
     );
   }
 

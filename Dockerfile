@@ -43,8 +43,25 @@ WORKDIR /app
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package.json ./
+
+# Archivos de DATOS. No son fuentes: tsc no los toca y por eso no salen de
+# dist\. Cada uno tiene que copiarse explicitamente.
+#
+#   web\        la interfaz de chat
+#   modulo\     el paquete reutilizable del bonus, que ademas es donde
+#               viven los ORIGINALES del prompt (agent.md) y del
+#               conocimiento (skill/registro-contratos/SKILL.md). La
+#               aplicacion los lee de ahi, asi que no pueden divergir de
+#               lo que se entrega como modulo.
+#   fixtures\   el buzon, el maestro y los comerciales del reto
+#
+# fixtures\ y knowledge\ faltaban. El contenedor arrancaba, respondia 200
+# y no podia trabajar: leer_buzon devolvia cero mensajes sin error y la
+# sesion se creaba sin las reglas del proceso. src\inicio.ts comprueba
+# ahora que los cuatro estan y aborta el arranque si falta alguno.
 COPY --chown=node:node web ./web
-COPY --chown=node:node agent ./agent
+COPY --chown=node:node modulo ./modulo
+COPY --chown=node:node fixtures ./fixtures
 
 # out\ se limpia y se reescribe en cada arranque: tiene que ser escribible
 # por el usuario sin privilegios.

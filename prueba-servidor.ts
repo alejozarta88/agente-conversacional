@@ -9,7 +9,7 @@ import type {
   RespuestaProveedor,
 } from "./src/llm/adapter.js";
 import { ProveedorFalso, type ActoGuion } from "./src/llm/falso.js";
-import { crearServidor, type Limites } from "./src/server.js";
+import { crearServidor, sinFrontmatter, type Limites } from "./src/server.js";
 import {
   registrar,
   type DeclaracionHerramienta,
@@ -108,6 +108,11 @@ async function levantarExtra(
   };
 }
 
+interface CampoVisto {
+  readonly campo: string;
+  readonly valor: string;
+}
+
 interface EventoVisto {
   readonly tipo: string;
   readonly texto?: string;
@@ -116,6 +121,7 @@ interface EventoVisto {
   readonly disposicion?: string;
   readonly resumen?: string;
   readonly argumentos?: unknown;
+  readonly campos?: readonly CampoVisto[];
 }
 
 interface VistaVista {
@@ -124,6 +130,7 @@ interface VistaVista {
   readonly esperandoConfirmacion?: {
     nombre: string;
     argumentos: unknown;
+    campos?: readonly CampoVisto[];
   } | null;
   readonly mensajesUsados?: number;
   readonly mensajesPorSesion?: number;
@@ -451,14 +458,81 @@ async function principal(): Promise<void> {
     );
   }
 
-  // 12. El prompt real entra como mensaje de sistema.
+  // 12. Las DOS capas entran como mensajes de sistema: comportamiento y
+  // conocimiento.
+  //
+  // Antes esto solo miraba historial[0] y por eso enmascaraba un fallo
+  // real: la capa de conocimiento no llegaba a la imagen desplegada, el
+  // servidor lo tragaba con un console.error y devolvia cadena vacia, y la
+  // verificacion seguia en verde. Ahora se comprueba que el segundo
+  // mensaje existe, no esta vacio y es el archivo que toca.
   {
-    const enDisco = (await readFile("agent/prompt.md", "utf8")).trim();
+    const enDisco = sinFrontmatter(
+      await readFile("modulo/agent.md", "utf8"),
+    );
+    // Defensivo a proposito: si el archivo no esta, esta verificacion
+    // tiene que FALLAR con un mensaje claro, no reventar la suite entera.
+    let reglasEnDisco = "";
+    let leyoElArchivo = true;
+    try {
+      reglasEnDisco = sinFrontmatter(
+        await readFile("modulo/skill/registro-contratos/SKILL.md", "utf8"),
+      );
+    } catch {
+      leyoElArchivo = false;
+    }
     guionFijo("listo");
     await pedir("/api/chat", { mensaje: "hola" });
-    const primero = conmutador.actual.historialDelEnvio(1)[0];
+    const sistema = conmutador.actual
+      .historialDelEnvio(1)
+      .filter((mensaje) => mensaje.rol === "sistema");
+    const primero = sistema[0];
+    const segundo = sistema[1];
     const llegoComoSistema =
       primero?.rol === "sistema" && primero.texto === enDisco;
+
+    const problemasConocimiento: string[] = [];
+    if (!leyoElArchivo) {
+      problemasConocimiento.push(
+        "modulo/skill/registro-contratos/SKILL.md no existe: la capa de conocimiento no se despliega",
+      );
+    } else if (reglasEnDisco === "") {
+      problemasConocimiento.push("el SKILL.md esta vacio en disco");
+    }
+    if (segundo === undefined) {
+      problemasConocimiento.push("no llego la capa de conocimiento");
+    } else if (segundo.texto.trim() === "") {
+      problemasConocimiento.push("la capa de conocimiento llego vacia");
+    } else if (segundo.texto !== reglasEnDisco) {
+      problemasConocimiento.push("el conocimiento no es el archivo de disco");
+    }
+    // Y que de verdad lleva las reglas, no un archivo cualquiera.
+    for (const exigida of ["RN1", "RN5", "RN7", "0,8", "No alcanzada"]) {
+      if (!(segundo?.texto ?? "").includes(exigida)) {
+        problemasConocimiento.push(`el conocimiento no menciona ${exigida}`);
+      }
+    }
+    // El frontmatter es metadato DEL ARCHIVO, no instruccion para el
+    // modelo: meter "permission: edit: deny" en un mensaje de sistema solo
+    // puede confundirlo sobre lo que puede hacer.
+    for (const [nombre, texto] of [
+      ["prompt", primero?.texto ?? ""],
+      ["conocimiento", segundo?.texto ?? ""],
+    ] as const) {
+      if (texto.startsWith("---") || texto.includes("mode: primary")) {
+        problemasConocimiento.push(`el frontmatter llego al modelo en ${nombre}`);
+      }
+    }
+    if (!(await readFile("modulo/agent.md", "utf8")).startsWith("---")) {
+      problemasConocimiento.push(
+        "modulo/agent.md no tiene frontmatter: el PRD lo exige para el bonus",
+      );
+    }
+    if (sistema.length !== 2) {
+      problemasConocimiento.push(
+        `hay ${sistema.length} mensajes de sistema, se esperaban 2`,
+      );
+    }
 
     const minusculas = enDisco.toLowerCase();
     const palabrasProhibidas = ["confirmacion", "confirmar", "permiso"].filter(
@@ -478,12 +552,15 @@ async function principal(): Promise<void> {
     );
 
     verificar(
-      "el prompt del archivo entra como mensaje de sistema y no negocia permisos",
+      "prompt y conocimiento llegan como dos mensajes de sistema, con contenido real",
       llegoComoSistema &&
+        problemasConocimiento.length === 0 &&
         palabrasProhibidas.length === 0 &&
         ordenesProhibidas.length === 0 &&
         faltan.length === 0,
-      `comoSistema=${llegoComoSistema} palabras=[${palabrasProhibidas.join(",")}] ordenes=[${ordenesProhibidas.join(",")}] faltan=[${faltan.join(",")}]`,
+      problemasConocimiento.length === 0
+        ? `sistema[0]=prompt (${enDisco.length} car), sistema[1]=conocimiento (${reglasEnDisco.length} car, con RN1/RN5/corte 0,8) | palabras=[${palabrasProhibidas.join(",")}] ordenes=[${ordenesProhibidas.join(",")}] faltan=[${faltan.join(",")}]`
+        : problemasConocimiento.join("; "),
     );
   }
 
@@ -605,6 +682,70 @@ async function principal(): Promise<void> {
         (respuesta.vista.error ?? "").includes("300 caracteres") &&
         (respuesta.vista.error ?? "").includes("200"),
       `estado=${respuesta.estado} error="${respuesta.vista.error ?? ""}"`,
+    );
+  }
+
+  // 18. El pendiente que viaja al front lleva los campos ya aplanados.
+  {
+    guion([
+      {
+        tipo: "llamadas",
+        llamadas: [
+          { nombre: "laboratorio_borrar", argumentos: { recurso: "informe" } },
+        ],
+      },
+    ]);
+    const respuesta = await pedir("/api/chat", { mensaje: "borra el informe" });
+    const pendiente = respuesta.vista.esperandoConfirmacion;
+    const campos: readonly CampoVisto[] = pendiente?.campos ?? [];
+    const plano = campos.map((una) => `${una.campo}=${una.valor}`).join(", ");
+    const evento = (respuesta.vista.eventos ?? []).find(
+      (uno) => uno.tipo === "pendiente",
+    );
+    verificar(
+      "el pendiente que viaja al front lleva los campos aplanados, no solo el objeto",
+      plano === 'recurso="informe"' &&
+        Array.isArray(evento?.campos) &&
+        (evento?.campos ?? []).length === 1,
+      `campos=[${plano}] tambien en el evento=${Array.isArray(evento?.campos)}`,
+    );
+    await pedir("/api/chat", { confirmacion: { aprobada: false } });
+  }
+
+  // 19. Red de regresion ESTATICA sobre index.html.
+  //
+  // Esto NO prueba el front. No monta navegador, no mide nada renderizado
+  // y no sabe si la pagina se ve bien: hace grep sobre el archivo.
+  //
+  // Se conserva, y no se saca del marcador, porque cada marca que exige
+  // corresponde a un fallo real que se corrigio —el bloque de aprobacion
+  // fuera de pantalla, las tarjetas cortadas, el volcado JSON— y sin ella
+  // cualquiera puede revertirlos sin que nada chille. Pero el titulo dice
+  // lo que es, para que nadie lea "19 de 19" y crea que el front esta
+  // verificado. El render se comprueba a mano; esta en el README.
+  {
+    const html = await readFile("web/index.html", "utf8");
+    const exigidos: readonly [string, string][] = [
+      ["height: 100dvh", "main con altura fija: sin esto la pagina entera se desplaza"],
+      ["scrollIntoView", "el bloque de aprobacion se trae a la vista solo"],
+      ["position: sticky", "el bloque de aprobacion queda pegado al fondo"],
+      ["@media (max-width: 640px)", "adaptacion a ventana estrecha"],
+      ["white-space: pre-wrap", "las tarjetas saltan de linea"],
+      ['createElement("details")', "resultados largos desplegables"],
+      ["accion-campos", "el bloque pinta campo a campo"],
+    ];
+    const faltan = exigidos
+      .filter(([aguja]) => !html.includes(aguja))
+      .map(([, porque]) => porque);
+    const prohibidos = ["JSON.stringify(valor, null, 2)"].filter((aguja) =>
+      html.includes(aguja),
+    );
+    verificar(
+      "[estatica, no prueba el render] index.html conserva las marcas de maquetado",
+      faltan.length === 0 && prohibidos.length === 0,
+      faltan.length === 0 && prohibidos.length === 0
+        ? `${exigidos.length} marcas presentes; ningun volcado JSON. Esto es grep sobre el archivo: que se vea bien se comprueba a mano`
+        : `faltan: ${faltan.join("; ")} | prohibidos: ${prohibidos.join(", ")}`,
     );
   }
 

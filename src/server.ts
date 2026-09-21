@@ -5,7 +5,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import type { Server } from "node:http";
 
 import {
+  camposDeArgumentos,
   ejecutarTurno,
+  type CampoArgumento,
   type ConfiguracionCiclo,
   type DisposicionLlamada,
   type LlamadaPendiente,
@@ -34,6 +36,11 @@ export const LIMITES_POR_DEFECTO = {
   bytesCuerpo: 64 * 1024,
   /** Tope de caracteres de un mensaje del usuario. */
   caracteresMensaje: 4000,
+  /**
+   * Tope de tokens por sesion. Requisito no funcional: "un usuario no
+   * puede gastar tu clave sin limite". 0 = sin tope.
+   */
+  tokensPorSesion: 120_000,
 } as const;
 
 export interface Limites {
@@ -42,6 +49,7 @@ export interface Limites {
   readonly inactividadMs?: number;
   readonly bytesCuerpo?: number;
   readonly caracteresMensaje?: number;
+  readonly tokensPorSesion?: number;
 }
 
 export interface OpcionesServidor {
@@ -53,6 +61,13 @@ export interface OpcionesServidor {
   readonly rutaIndex?: string;
   /** Ruta del system prompt. Vive en un archivo, no en el codigo. */
   readonly rutaPrompt?: string;
+  /**
+   * Ruta de la capa de conocimiento: las reglas del proceso. Va aparte
+   * del prompt a proposito. El prompt dice COMO se conduce el agente; el
+   * conocimiento dice COMO FUNCIONA el negocio. Se pueden cambiar las
+   * reglas del proceso sin tocar el comportamiento, y al reves.
+   */
+  readonly rutaConocimiento?: string;
 }
 
 /** Lo que el front pinta. Nunca lleva nada del proveedor ni de la clave. */
@@ -63,6 +78,8 @@ export type Evento =
       readonly tipo: "herramienta";
       readonly nombre: string;
       readonly argumentos: unknown;
+      /** Aplanados por el ciclo, para que el front no formatee JSON. */
+      readonly campos: readonly CampoArgumento[];
       readonly ok: boolean;
       readonly disposicion: DisposicionLlamada;
       readonly resumen: string;
@@ -71,6 +88,8 @@ export type Evento =
       readonly tipo: "pendiente";
       readonly nombre: string;
       readonly argumentos: unknown;
+      /** Ya aplanados por el ciclo: el front los pinta, no los formatea. */
+      readonly campos: readonly CampoArgumento[];
     }
   | { readonly tipo: "error"; readonly texto: string }
   | { readonly tipo: "aviso"; readonly texto: string };
@@ -83,6 +102,8 @@ interface Sesion {
   /** El estado pendiente vive AQUI, no en el cliente. */
   pendiente: LlamadaPendiente | undefined;
   mensajesUsados: number;
+  /** Acumulado real de la sesion, sumando lo que gasta cada turno. */
+  tokensUsados: number;
   readonly eventos: Evento[];
 }
 
@@ -92,9 +113,12 @@ interface VistaSesion {
   readonly esperandoConfirmacion: {
     readonly nombre: string;
     readonly argumentos: unknown;
+    readonly campos: readonly CampoArgumento[];
   } | null;
   readonly mensajesUsados: number;
   readonly mensajesPorSesion: number;
+  readonly tokensUsados: number;
+  readonly tokensPorSesion: number;
 }
 
 function resumirSobre(resultado: string): string {
@@ -118,6 +142,7 @@ function eventoDeLlamada(llamada: LlamadaRealizada): Evento {
     tipo: "herramienta",
     nombre: llamada.nombre,
     argumentos: llamada.argumentos,
+    campos: camposDeArgumentos(llamada.argumentos),
     ok: llamada.ok,
     disposicion: llamada.disposicion,
     resumen: resumirSobre(llamada.resultado),
@@ -127,6 +152,8 @@ function eventoDeLlamada(llamada: LlamadaRealizada): Evento {
 function volcarTurno(sesion: Sesion, resultado: ResultadoTurno): void {
   sesion.historial = resultado.historial;
   sesion.pendiente = resultado.esperandoConfirmacion;
+  // El gasto se acumula por sesion, que es la unidad del tope.
+  sesion.tokensUsados += resultado.tokensUsados;
 
   for (const llamada of resultado.llamadas) {
     sesion.eventos.push(eventoDeLlamada(llamada));
@@ -143,11 +170,40 @@ function volcarTurno(sesion: Sesion, resultado: ResultadoTurno): void {
         tipo: "pendiente",
         nombre: pendiente.llamada.nombre,
         argumentos: pendiente.llamada.argumentos,
+        campos: camposDeArgumentos(pendiente.llamada.argumentos),
       });
     }
     return;
   }
   sesion.eventos.push({ tipo: "agente", texto: resultado.respuesta });
+}
+
+/**
+ * Quita el frontmatter YAML de un documento del modulo.
+ *
+ * `modulo/agent.md` y `SKILL.md` lo llevan porque el PRD lo exige para que
+ * otras plataformas de agentes los reconozcan. Pero eso son metadatos DEL
+ * ARCHIVO, no instrucciones para el modelo: meter `permission: {edit:
+ * deny}` en un mensaje de sistema solo puede confundirlo sobre lo que
+ * puede hacer. El modelo recibe el cuerpo.
+ */
+export function sinFrontmatter(texto: string): string {
+  const limpio = texto.replace(/^﻿/u, "").trimStart();
+  if (!limpio.startsWith("---")) {
+    return limpio.trim();
+  }
+  const lineas = limpio.split(/\r?\n/u);
+  for (let indice = 1; indice < lineas.length; indice += 1) {
+    if ((lineas[indice] ?? "").trim() === "---") {
+      return lineas
+        .slice(indice + 1)
+        .join("\n")
+        .trim();
+    }
+  }
+  // Abre frontmatter y no lo cierra: se devuelve tal cual en vez de
+  // tragarse el documento entero.
+  return limpio.trim();
 }
 
 function leerObjeto(valor: unknown): Record<string, unknown> | undefined {
@@ -225,6 +281,8 @@ export function crearServidor(opciones: OpcionesServidor): Server {
       opciones.limites?.inactividadMs ?? LIMITES_POR_DEFECTO.inactividadMs,
     bytesCuerpo:
       opciones.limites?.bytesCuerpo ?? LIMITES_POR_DEFECTO.bytesCuerpo,
+    tokensPorSesion:
+      opciones.limites?.tokensPorSesion ?? LIMITES_POR_DEFECTO.tokensPorSesion,
     caracteresMensaje:
       opciones.limites?.caracteresMensaje ??
       LIMITES_POR_DEFECTO.caracteresMensaje,
@@ -235,25 +293,49 @@ export function crearServidor(opciones: OpcionesServidor): Server {
 
   const rutaPrompt =
     opciones.rutaPrompt ??
-    fileURLToPath(new URL("../agent/prompt.md", import.meta.url));
+    fileURLToPath(new URL("../modulo/agent.md", import.meta.url));
+
+  // Las dos capas viven en modulo/, que es el paquete reutilizable del
+  // bonus. No son copias: son LOS originales, y la aplicacion los consume
+  // desde ahi. Asi no pueden divergir de lo que se entrega. Ver SOLUCION.md.
+  const rutaConocimiento =
+    opciones.rutaConocimiento ??
+    fileURLToPath(
+      new URL("../modulo/skill/registro-contratos/SKILL.md", import.meta.url),
+    );
 
   const sesiones = new Map<string, Sesion>();
 
   /** Se lee una vez del disco y se cachea. Nunca va embebido en el codigo. */
   let promptSistema: string | undefined;
+  let conocimiento: string | undefined;
+
+  async function leerArchivo(ruta: string, que: string): Promise<string> {
+    try {
+      return sinFrontmatter(await readFile(ruta, "utf8"));
+    } catch {
+      console.error(
+        `[servidor] no se pudo leer ${que} en ${ruta}; se sigue sin el`,
+      );
+      return "";
+    }
+  }
 
   async function obtenerPrompt(): Promise<string> {
     if (promptSistema === undefined) {
-      try {
-        promptSistema = (await readFile(rutaPrompt, "utf8")).trim();
-      } catch {
-        console.error(
-          `[servidor] no se pudo leer el system prompt en ${rutaPrompt}; se sigue sin el`,
-        );
-        promptSistema = "";
-      }
+      promptSistema = await leerArchivo(rutaPrompt, "el system prompt");
     }
     return promptSistema;
+  }
+
+  async function obtenerConocimiento(): Promise<string> {
+    if (conocimiento === undefined) {
+      conocimiento = await leerArchivo(
+        rutaConocimiento,
+        "la capa de conocimiento",
+      );
+    }
+    return conocimiento;
   }
 
   /**
@@ -298,13 +380,20 @@ export function crearServidor(opciones: OpcionesServidor): Server {
       }
     }
     const prompt = await obtenerPrompt();
+    const reglas = await obtenerConocimiento();
+    // Dos mensajes de sistema separados, en este orden: comportamiento y
+    // luego conocimiento. No se concatenan para que cada capa siga siendo
+    // identificable en el historial.
+    const sistema = [prompt, reglas]
+      .filter((texto) => texto !== "")
+      .map((texto) => ({ rol: "sistema" as const, texto }));
     const sesion: Sesion = {
       id: randomUUID(),
       ultimoUso: ahora,
-      historial:
-        prompt === "" ? [] : [{ rol: "sistema" as const, texto: prompt }],
+      historial: sistema,
       pendiente: undefined,
       mensajesUsados: 0,
+      tokensUsados: 0,
       eventos: [],
     };
     sesiones.set(sesion.id, sesion);
@@ -321,9 +410,12 @@ export function crearServidor(opciones: OpcionesServidor): Server {
           : {
               nombre: sesion.pendiente.llamada.nombre,
               argumentos: sesion.pendiente.llamada.argumentos,
+              campos: camposDeArgumentos(sesion.pendiente.llamada.argumentos),
             },
       mensajesUsados: sesion.mensajesUsados,
       mensajesPorSesion: limites.mensajesPorSesion,
+      tokensUsados: sesion.tokensUsados,
+      tokensPorSesion: limites.tokensPorSesion,
     };
   }
 
@@ -338,9 +430,14 @@ export function crearServidor(opciones: OpcionesServidor): Server {
       mensajeUsuario,
       registro: opciones.registro,
       adaptador: opciones.adaptador,
-      ...(opciones.configuracionCiclo === undefined
-        ? {}
-        : { configuracion: opciones.configuracionCiclo }),
+      // El tope de tokens es de la SESION, asi que el servidor le pasa al
+      // ciclo cuanto lleva gastado esta. El ciclo lo mira antes de cada
+      // envio y corta el turno si se agota.
+      configuracion: {
+        ...opciones.configuracionCiclo,
+        topeTokensSesion: limites.tokensPorSesion,
+        tokensGastadosAntes: sesion.tokensUsados,
+      },
       ...(confirmacion === undefined || pendiente === undefined
         ? {}
         : {

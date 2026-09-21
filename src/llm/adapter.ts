@@ -48,14 +48,30 @@ export type Mensaje =
   | MensajeAsistente
   | MensajeHerramienta;
 
+/**
+ * Consumo declarado por el proveedor. Es el numero que se factura, asi
+ * que cuando viene se usa este y no una estimacion nuestra.
+ */
+export interface UsoTokens {
+  readonly entrada: number;
+  readonly salida: number;
+  readonly total: number;
+}
+
 /** Las dos cosas distintas que puede expresar una respuesta del proveedor. */
 export type RespuestaProveedor =
-  | { readonly tipo: "texto"; readonly texto: string }
+  | {
+      readonly tipo: "texto";
+      readonly texto: string;
+      /** Ausente si el proveedor no lo reporta; entonces se estima. */
+      readonly uso?: UsoTokens;
+    }
   | {
       readonly tipo: "llamadas";
       /** Texto que acompana a las llamadas; puede ser "". */
       readonly texto: string;
       readonly llamadas: readonly PeticionLlamada[];
+      readonly uso?: UsoTokens;
     };
 
 /**
