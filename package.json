@@ -1,0 +1,36 @@
+{
+  "name": "agente-conversacional",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "prueba-contrato": "tsx prueba-contrato.ts",
+    "prueba-ciclo": "tsx prueba-ciclo.ts",
+    "prueba-adaptador": "tsx prueba-adaptador.ts",
+    "inicio": "node --env-file-if-exists=.env --import tsx src/inicio.ts",
+    "demo": "tsx demo.ts",
+    "prueba-servidor": "tsx prueba-servidor.ts",
+    "humo": "node --env-file-if-exists=.env --import tsx prueba-humo.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.5.1",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.5.1",
+  "type": "module",
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}

@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agente conversacional</title>
+    <style>
+      :root {
+        --fondo: #10131a;
+        --panel: #171b24;
+        --panel-alto: #1e2430;
+        --borde: #2b3342;
+        --texto: #e6e9ef;
+        --tenue: #99a2b3;
+        --acento: #6aa9ff;
+        --ok: #4fbf7b;
+        --fallo: #ff7b72;
+        --aviso: #ffc857;
+        --confirmar: #f0b429;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--fondo);
+        color: var(--texto);
+        font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
+        display: flex;
+        justify-content: center;
+      }
+      main {
+        width: min(820px, 100%);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        padding: 16px;
+        gap: 12px;
+      }
+      header {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--borde);
+        padding-bottom: 8px;
+      }
+      h1 {
+        font-size: 17px;
+        margin: 0;
+        letter-spacing: 0.02em;
+      }
+      #estado {
+        font-size: 13px;
+        color: var(--tenue);
+      }
+      #historial {
+        flex: 1;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding-right: 4px;
+      }
+      .burbuja {
+        padding: 10px 14px;
+        border-radius: 12px;
+        max-width: 85%;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      .usuario {
+        align-self: flex-end;
+        background: var(--acento);
+        color: #0b1220;
+        font-weight: 500;
+      }
+      .agente {
+        align-self: flex-start;
+        background: var(--panel-alto);
+        border: 1px solid var(--borde);
+      }
+      .tarjeta {
+        align-self: stretch;
+        background: var(--panel);
+        border: 1px solid var(--borde);
+        border-left: 3px solid var(--tenue);
+        border-radius: 8px;
+        padding: 8px 12px;
+        font-size: 13px;
+      }
+      .tarjeta.ok {
+        border-left-color: var(--ok);
+      }
+      .tarjeta.fallo {
+        border-left-color: var(--fallo);
+      }
+      .tarjeta.no-corrio {
+        border-left-color: var(--aviso);
+        opacity: 0.85;
+      }
+      .tarjeta .cabecera {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        align-items: center;
+      }
+      .tarjeta .nombre {
+        font-family: Consolas, "Courier New", monospace;
+        font-weight: 600;
+      }
+      .tarjeta .marca {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--tenue);
+      }
+      .tarjeta pre {
+        margin: 6px 0 0;
+        padding: 6px 8px;
+        background: #0d1017;
+        border-radius: 6px;
+        overflow-x: auto;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        color: var(--tenue);
+      }
+      .error,
+      .aviso {
+        align-self: stretch;
+        border-radius: 8px;
+        padding: 10px 12px;
+        font-size: 14px;
+      }
+      .error {
+        background: rgba(255, 123, 114, 0.12);
+        border: 1px solid var(--fallo);
+      }
+      .aviso {
+        background: rgba(255, 200, 87, 0.12);
+        border: 1px solid var(--aviso);
+      }
+      #confirmacion {
+        border: 2px solid var(--confirmar);
+        background: rgba(240, 180, 41, 0.12);
+        border-radius: 12px;
+        padding: 14px 16px;
+        display: none;
+        flex-direction: column;
+        gap: 10px;
+        box-shadow: 0 0 0 4px rgba(240, 180, 41, 0.08);
+      }
+      #confirmacion.visible {
+        display: flex;
+      }
+      #confirmacion h2 {
+        margin: 0;
+        font-size: 14px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--confirmar);
+      }
+      #confirmacion .accion {
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 15px;
+        font-weight: 600;
+      }
+      #confirmacion pre {
+        margin: 0;
+        padding: 8px 10px;
+        background: #0d1017;
+        border-radius: 6px;
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 12px;
+        overflow-x: auto;
+      }
+      .botones {
+        display: flex;
+        gap: 10px;
+      }
+      button {
+        font: inherit;
+        border-radius: 8px;
+        border: 1px solid var(--borde);
+        padding: 8px 16px;
+        cursor: pointer;
+        background: var(--panel-alto);
+        color: var(--texto);
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      #confirmar {
+        background: var(--ok);
+        border-color: var(--ok);
+        color: #06210f;
+        font-weight: 600;
+      }
+      #denegar {
+        background: transparent;
+        border-color: var(--fallo);
+        color: var(--fallo);
+        font-weight: 600;
+      }
+      form {
+        display: flex;
+        gap: 8px;
+        border-top: 1px solid var(--borde);
+        padding-top: 12px;
+      }
+      #entrada {
+        flex: 1;
+        font: inherit;
+        padding: 10px 12px;
+        border-radius: 8px;
+        border: 1px solid var(--borde);
+        background: var(--panel);
+        color: var(--texto);
+      }
+      #entrada:disabled {
+        opacity: 0.5;
+      }
+      #enviar {
+        background: var(--acento);
+        border-color: var(--acento);
+        color: #0b1220;
+        font-weight: 600;
+      }
+      #trabajando {
+        display: none;
+        align-items: center;
+        gap: 8px;
+        color: var(--tenue);
+        font-size: 13px;
+      }
+      #trabajando.visible {
+        display: flex;
+      }
+      .punto {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--acento);
+        animation: latido 1s infinite ease-in-out;
+      }
+      @keyframes latido {
+        0%,
+        100% {
+          opacity: 0.25;
+        }
+        50% {
+          opacity: 1;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>Agente conversacional</h1>
+        <span id="estado">sesion nueva</span>
+      </header>
+
+      <div id="historial"></div>
+
+      <div id="trabajando"><span class="punto"></span> El agente esta trabajando...</div>
+
+      <section id="confirmacion">
+        <h2>Esta accion necesita tu confirmacion</h2>
+        <div class="accion" id="accion-nombre"></div>
+        <pre id="accion-argumentos"></pre>
+        <div class="botones">
+          <button id="confirmar" type="button">Confirmar y ejecutar</button>
+          <button id="denegar" type="button">Denegar</button>
+        </div>
+      </section>
+
+      <form id="formulario">
+        <input
+          id="entrada"
+          type="text"
+          autocomplete="off"
+          placeholder="Escribe tu mensaje..."
+        />
+        <button id="enviar" type="submit">Enviar</button>
+      </form>
+    </main>
+
+    <script>
+      // El identificador de conversacion lo emite el SERVIDOR: aqui se
+      // guarda el que devuelve y se reutiliza. El cliente no inventa ids.
+      let sesionId = null;
+
+      const historial = document.getElementById("historial");
+      const trabajando = document.getElementById("trabajando");
+      const bloque = document.getElementById("confirmacion");
+      const accionNombre = document.getElementById("accion-nombre");
+      const accionArgumentos = document.getElementById("accion-argumentos");
+      const entrada = document.getElementById("entrada");
+      const enviar = document.getElementById("enviar");
+      const formulario = document.getElementById("formulario");
+      const estado = document.getElementById("estado");
+
+      let ocupado = false;
+      let esperandoConfirmacion = null;
+
+      function bonito(valor) {
+        try {
+          return JSON.stringify(valor, null, 2);
+        } catch {
+          return String(valor);
+        }
+      }
+
+      function pintarEvento(evento) {
+        const nodo = document.createElement("div");
+        if (evento.tipo === "usuario" || evento.tipo === "agente") {
+          nodo.className = "burbuja " + evento.tipo;
+          nodo.textContent = evento.texto;
+        } else if (evento.tipo === "error") {
+          nodo.className = "error";
+          nodo.textContent = evento.texto;
+        } else if (evento.tipo === "aviso") {
+          nodo.className = "aviso";
+          nodo.textContent = evento.texto;
+        } else if (evento.tipo === "pendiente") {
+          nodo.className = "tarjeta no-corrio";
+          nodo.innerHTML =
+            '<div class="cabecera"><span class="nombre"></span>' +
+            '<span class="marca">esperando confirmacion</span></div>';
+          nodo.querySelector(".nombre").textContent = evento.nombre;
+          const pre = document.createElement("pre");
+          pre.textContent = bonito(evento.argumentos);
+          nodo.appendChild(pre);
+        } else if (evento.tipo === "herramienta") {
+          const clase =
+            evento.disposicion !== "ejecutada"
+              ? "no-corrio"
+              : evento.ok
+                ? "ok"
+                : "fallo";
+          const marca =
+            evento.disposicion === "denegada"
+              ? "denegada, no se ejecuto"
+              : evento.disposicion === "pendiente"
+                ? "pendiente, no se ejecuto"
+                : evento.ok
+                  ? "ok"
+                  : "fallo";
+          nodo.className = "tarjeta " + clase;
+          nodo.innerHTML =
+            '<div class="cabecera"><span class="nombre"></span>' +
+            '<span class="marca"></span></div>';
+          nodo.querySelector(".nombre").textContent = evento.nombre;
+          nodo.querySelector(".marca").textContent = marca;
+          const args = document.createElement("pre");
+          args.textContent = "argumentos: " + bonito(evento.argumentos);
+          nodo.appendChild(args);
+          const salida = document.createElement("pre");
+          salida.textContent = "resultado: " + evento.resumen;
+          nodo.appendChild(salida);
+        } else {
+          return;
+        }
+        historial.appendChild(nodo);
+      }
+
+      function pintar(vista) {
+        historial.replaceChildren();
+        for (const evento of vista.eventos) {
+          pintarEvento(evento);
+        }
+        historial.scrollTop = historial.scrollHeight;
+
+        esperandoConfirmacion = vista.esperandoConfirmacion;
+        if (esperandoConfirmacion) {
+          accionNombre.textContent = esperandoConfirmacion.nombre;
+          accionArgumentos.textContent = bonito(
+            esperandoConfirmacion.argumentos,
+          );
+          bloque.classList.add("visible");
+        } else {
+          bloque.classList.remove("visible");
+        }
+
+        estado.textContent =
+          vista.mensajesUsados + " de " + vista.mensajesPorSesion + " mensajes";
+        refrescarControles();
+      }
+
+      function refrescarControles() {
+        const bloqueado = ocupado || Boolean(esperandoConfirmacion);
+        entrada.disabled = bloqueado;
+        enviar.disabled = bloqueado;
+        document.getElementById("confirmar").disabled = ocupado;
+        document.getElementById("denegar").disabled = ocupado;
+        trabajando.classList.toggle("visible", ocupado);
+      }
+
+      async function hablar(cuerpo) {
+        ocupado = true;
+        refrescarControles();
+        try {
+          const respuesta = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(
+              sesionId === null ? cuerpo : { sesionId, ...cuerpo },
+            ),
+          });
+          const datos = await respuesta.json();
+          if (datos && datos.error) {
+            pintarEvento({ tipo: "error", texto: datos.error });
+            return;
+          }
+          if (datos && datos.sesionId) {
+            sesionId = datos.sesionId;
+          }
+          pintar(datos);
+        } catch {
+          pintarEvento({
+            tipo: "error",
+            texto:
+              "No se pudo hablar con el servidor. Comprueba que sigue levantado y vuelve a intentarlo.",
+          });
+        } finally {
+          ocupado = false;
+          refrescarControles();
+        }
+      }
+
+      formulario.addEventListener("submit", (evento) => {
+        evento.preventDefault();
+        const texto = entrada.value.trim();
+        if (texto === "" || ocupado || esperandoConfirmacion) {
+          return;
+        }
+        entrada.value = "";
+        hablar({ mensaje: texto });
+      });
+
+      document.getElementById("confirmar").addEventListener("click", () => {
+        if (!esperandoConfirmacion || ocupado) {
+          return;
+        }
+        hablar({ confirmacion: { aprobada: true } });
+      });
+
+      document.getElementById("denegar").addEventListener("click", () => {
+        if (!esperandoConfirmacion || ocupado) {
+          return;
+        }
+        hablar({
+          confirmacion: { aprobada: false, motivo: "denegada por el humano" },
+        });
+      });
+
+      refrescarControles();
+    </script>
+  </body>
+</html>
